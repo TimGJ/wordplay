@@ -133,13 +133,13 @@ if __name__ == "__main__":
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
         words = WordList(args.source)
+        with open(args.output, "w") as outfile:
+            logging.debug(f"Writing to {args.output}")
+            json.dump(words.asDict(), outfile, indent=4)
     except FileNotFoundError:
         print(f"File not found: {args.source}")
         sys.exit(0)
     except KeyboardInterrupt:
         print("Interrupted")
     finally:
-        with open(args.output, "w") as outfile:
-            logging.debug(f"Writing to {args.output}")
-            json.dump(words.asDict(), outfile, indent=4)
-    logging.info("Done")
+        logging.info("Done")
