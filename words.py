@@ -10,7 +10,7 @@ import logging
 import itertools
 import json
 import sys
-
+import pickle
 
 class Wordle:
     """
@@ -95,49 +95,70 @@ class WordList:
     WordList is (basically) a wrapper round a series of dictionaries of Word objects with some additional methods
     """
 
-    def __init__(self, source, minlen=3, pagination=1_000_000):
-        wordre = re.compile("^[a-zA-Z]{"+str(minlen)+",}$")
+    def __init__(self, source, **kwargs):
+        MINLEN = 3
+        self.minlen = kwargs.get("minlen") if kwargs.get("minlen") else MINLEN
+        self.maxwords = kwargs.get("maxwords") if kwargs.get("maxwords") else None
+        wordre = re.compile("^[a-zA-Z]{"+str(self.minlen)+",}$")
 
         self.source = source
         self.wordpath = pathlib.Path(source)
         if not (self.wordpath.exists() and self.wordpath.is_file()):
             raise FileNotFoundError(f"File not found: {source}")
-        self.words = {line: Word(line) for line in self.wordpath.read_text().splitlines() if wordre.match(line)}
+        lines = self.wordpath.read_text().splitlines()
+        logging.info(f"Read {len(lines):,} lines from {self.wordpath}")
+
+        if self.maxwords: # For debugging purposes only!
+            lines = lines[:self.maxwords]
+            logging.info(f"Truncating to {self.maxwords:,} lines")
+        self.words = {line: Word(line) for line in lines if wordre.match(line)}
         self.bins = collections.defaultdict(dict)
         for word in self.words.values():
             self.bins[word.length][word.word] = word
-        logging.debug(f"Read {len(self.words):,} words from {self.wordpath.name}")
+        logging.info(f"Read {len(self.words):,} words from {self.wordpath.name}")
 
         for l in sorted(self.bins.keys()):
             logging.info(f"Processing {len(self.bins[l]):,} words of {l} characters")
-            for i, (a, b) in enumerate(itertools.combinations(self.bins[l].values(), 2), 1):
-                if i % pagination == 0:
-                    logging.debug(f"[{l}] {i:,} {a.word} : {b.word}")
-                if a.isAnagram(b):
-                    a.anagrams.append(b)
-                    b.anagrams.append(a)
-                a.wordleScore(b)
-                b.wordleScore(a)
+            self.processBin(self.bins[l], l)
+        pass
 
     def __repr__(self):
         return f"WordList({self.source} ({len(self.words):,} words)"
 
     def asDict(self):
         return {word: value.asDict() for word, value in self.words.items()}
+
+    def processBin(self, bin, length, pagination=1_000_000):
+        for i, (a, b) in enumerate(itertools.combinations(bin.values(), 2), 1):
+            if i % pagination == 0:
+                logging.debug(f"[{l}] {i:,} {a.word} : {b.word}")
+            if a.isAnagram(b):
+                a.anagrams.append(b)
+                b.anagrams.append(a)
+            a.wordleScore(b)
+            b.wordleScore(a)
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Playing with words")
     ap.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity")
-    ap.add_argument("-o", "--output", help="Output JSON filename", default="words.json", type=str)
+    ap.add_argument("-j", "--json", help="Output JSON filename", default="words.json", type=str)
+    ap.add_argument("-p", "--pickle", help="Output Pickle filename", default="words.pickle", type=str)
+    ap.add_argument("-m", "--maxwords", help="Maximum number of words", type=int)
+    ap.add_argument("-l", "--minlen", help="Minimum word length", type=int, default=3)
     ap.add_argument("source", help="Source word list")
     args = ap.parse_args()
     levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     logging.basicConfig(level=levels[min(args.verbose, len(levels)-1)],
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
-        words = WordList(args.source)
-        with open(args.output, "w") as outfile:
-            logging.debug(f"Writing to {args.output}")
-            json.dump(words.asDict(), outfile, indent=4)
+        words = WordList(args.source, minlen=args.minlen, maxwords=args.maxwords)
+        if args.json:
+            with open(args.json, "w") as outfile:
+                logging.info(f"Writing to {args.output}")
+                json.dump(words.asDict(), outfile, indent=4)
+        if args.pickle:
+            with open(args.pickle, "wb") as outfile:
+                pickle.dump(words, outfile)
     except FileNotFoundError:
         print(f"File not found: {args.source}")
         sys.exit(0)
