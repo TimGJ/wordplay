@@ -36,8 +36,10 @@ class Word:
     def __init__(self, word):
         assert isinstance(word, str), "Word must be a string"
         self.original = word
-        self.word = word.casefold()
-        self.proper = word[0].isupper()
+        self.word = word.lower()
+        self.length = len(self.word)
+        self.acronym = word.isupper()
+        self.proper = True if not self.acronym and word[0].isupper() else False
         self.palindrome = self.word == self.word[::-1]
         self.counts = collections.Counter(self.word)
         self.anagrams = []
@@ -45,8 +47,7 @@ class Word:
         self.wordle = Wordle()
 
     def __len__(self):
-        return len(self.word)
-
+        return self.length
 
     def __repr__(self):
         return f"Word('{self.word}')"
@@ -91,7 +92,7 @@ class Word:
 
 class WordList:
     """
-    WordList is (basically) a wrapper round a dictionary of Word objects with some additional methods
+    WordList is (basically) a wrapper round a series of dictionaries of Word objects with some additional methods
     """
 
     def __init__(self, source, minlen=3, pagination=1_000_000):
@@ -102,20 +103,21 @@ class WordList:
         if not (self.wordpath.exists() and self.wordpath.is_file()):
             raise FileNotFoundError(f"File not found: {source}")
         self.words = {line: Word(line) for line in self.wordpath.read_text().splitlines() if wordre.match(line)}
+        self.bins = collections.defaultdict(dict)
+        for word in self.words.values():
+            self.bins[word.length][word.word] = word
         logging.debug(f"Read {len(self.words):,} words from {self.wordpath.name}")
 
-        for i, (a, b) in enumerate(itertools.combinations(self.words.values(), 2), 1):
-            if i % pagination == 0:
-                logging.debug(f"{i:,} {a.word} :  {b.word}")
-            if a.isAnagram(b):
-                a.anagrams.append(b)
-                b.anagrams.append(a)
-            elif a.isSubword(b):
-                a.subwords.append(b)
-            elif b.isSubword(a):
-                b.subwords.append(a)
-            a.wordleScore(b)
-            b.wordleScore(a)
+        for l in sorted(self.bins.keys()):
+            logging.info(f"Processing {len(self.bins[l]):,} words of {l} characters")
+            for i, (a, b) in enumerate(itertools.combinations(self.bins[l].values(), 2), 1):
+                if i % pagination == 0:
+                    logging.debug(f"[{l}] {i:,} {a.word} : {b.word}")
+                if a.isAnagram(b):
+                    a.anagrams.append(b)
+                    b.anagrams.append(a)
+                a.wordleScore(b)
+                b.wordleScore(a)
 
     def __repr__(self):
         return f"WordList({self.source} ({len(self.words):,} words)"
