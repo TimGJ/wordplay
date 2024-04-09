@@ -11,6 +11,7 @@ import itertools
 import json
 import sys
 import pickle
+import concurrent.futures
 
 class Wordle:
     """
@@ -116,11 +117,10 @@ class WordList:
         for word in self.words.values():
             self.bins[word.length][word.word] = word
         logging.info(f"Read {len(self.words):,} words from {self.wordpath.name}")
-
-        for l in sorted(self.bins.keys()):
-            logging.info(f"Processing {len(self.bins[l]):,} words of {l} characters")
-            self.processBin(self.bins[l], l)
-        pass
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            logging.debug(f"Created process pool")
+            futures = {length: executor.submit(self.processBin, self.bins[length], length) for length in self.bins}
+            logging.debug('Waiting for futures')
 
     def __repr__(self):
         return f"WordList({self.source} ({len(self.words):,} words)"
@@ -129,16 +129,18 @@ class WordList:
         return {word: value.asDict() for word, value in self.words.items()}
 
     def processBin(self, bin, length, pagination=1_000_000):
+        logging.info(f"Processing {len(bin):,} words of {length} characters")
         for i, (a, b) in enumerate(itertools.combinations(bin.values(), 2), 1):
             if i % pagination == 0:
-                logging.debug(f"[{l}] {i:,} {a.word} : {b.word}")
+                logging.debug(f"[{length}] {i:,} {a.word} : {b.word}")
             if a.isAnagram(b):
                 a.anagrams.append(b)
                 b.anagrams.append(a)
             a.wordleScore(b)
             b.wordleScore(a)
+        return i
 
-if __name__ == "__main__":
+def main():
     ap = argparse.ArgumentParser(description="Playing with words")
     ap.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity")
     ap.add_argument("-j", "--json", help="Output JSON filename", default="words.json", type=str)
@@ -154,7 +156,7 @@ if __name__ == "__main__":
         words = WordList(args.source, minlen=args.minlen, maxwords=args.maxwords)
         if args.json:
             with open(args.json, "w") as outfile:
-                logging.info(f"Writing to {args.output}")
+                logging.info(f"Writing to {args.json}")
                 json.dump(words.asDict(), outfile, indent=4)
         if args.pickle:
             with open(args.pickle, "wb") as outfile:
@@ -166,3 +168,7 @@ if __name__ == "__main__":
         print("Interrupted")
     finally:
         logging.info("Done")
+
+
+if __name__ == "__main__":
+    main()
